@@ -72,11 +72,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I AS geom
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I AS geom
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_point_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -104,11 +106,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I AS speed
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I AS speed
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_speed_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -136,11 +140,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I AS altitude
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I AS altitude
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_altitude_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -168,11 +174,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I AS bearing
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I AS bearing
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_bearing_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -200,11 +208,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I AS session_id
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I AS session_id
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_session_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -272,11 +282,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I::character varying AS activity_type
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I::character varying AS activity_type
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_activity_type_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -304,11 +316,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I::integer AS confidence_level
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I::integer AS confidence_level
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_confidence_level_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
