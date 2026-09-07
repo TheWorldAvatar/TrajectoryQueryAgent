@@ -33,6 +33,7 @@ line AS (
         ts.bearing AS bearing,
         ts.trip AS trip,
         ts.user_id AS user_id,
+        ts.session_id AS session_id,
         CONCAT('https://w3id.org/MON/person.owl#person_', ts.user_id) AS iri
     FROM 
         timeseries ts
