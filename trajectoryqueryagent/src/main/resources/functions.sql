@@ -72,15 +72,51 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I AS geom
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I AS geom
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_point_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
     RETURN QUERY EXECUTE query;
+END $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION get_trip_table(
+    device_id_array TEXT[]
+)
+RETURNS TABLE (
+    "time" double precision,
+    "trip" integer
+) AS $$
+DECLARE
+    current_device_id TEXT;
+    current_trip_iri TEXT;
+    column_name TEXT;
+BEGIN
+    FOREACH current_device_id IN ARRAY device_id_array LOOP
+        SELECT mapping.trip_iri
+        INTO current_trip_iri
+        FROM point_to_trip mapping
+        WHERE mapping.point_iri = get_point_iri(current_device_id);
+
+        IF current_trip_iri IS NOT NULL THEN
+            column_name := get_column_name(current_trip_iri);
+
+            RETURN QUERY EXECUTE format(
+                'SELECT a.time_as_number AS time, a.%I::integer AS trip
+                 FROM time_series_data a
+                 JOIN time_series_data_iri b
+                   ON b.data_iri = %L
+                  AND a.data_iri_index = b.data_iri_index',
+                column_name,
+                current_trip_iri
+            );
+        END IF;
+    END LOOP;
 END $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION get_speed_table(
@@ -104,11 +140,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I AS speed
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I AS speed
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_speed_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -136,11 +174,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I AS altitude
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I AS altitude
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_altitude_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -168,11 +208,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I AS bearing
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I AS bearing
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_bearing_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -200,11 +242,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I AS session_id
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I AS session_id
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_session_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -221,6 +265,7 @@ RETURNS TABLE (
     "altitude" double precision,
     "bearing" double precision,
     "session_id" character varying,
+    "trip" integer,
     "device_id" TEXT,
     "user_id" TEXT
 ) AS $$
@@ -236,6 +281,7 @@ BEGIN
             altitude_data.altitude,
             bearing_data.bearing,
             session_data.session_id,
+            trip_data.trip,
             current_device_id,
             get_user_id(current_device_id)::TEXT
         FROM get_geom_table(ARRAY[current_device_id]) AS geom_data
@@ -246,7 +292,9 @@ BEGIN
         LEFT JOIN get_bearing_table(ARRAY[current_device_id]) AS bearing_data
             ON bearing_data."time" = geom_data."time"
         LEFT JOIN get_session_id_table(ARRAY[current_device_id]) AS session_data
-            ON session_data."time" = geom_data."time";
+            ON session_data."time" = geom_data."time"
+        LEFT JOIN get_trip_table(ARRAY[current_device_id]) AS trip_data
+            ON trip_data."time" = geom_data."time";
     END LOOP;
 END $$ LANGUAGE plpgsql;
 
@@ -272,11 +320,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I::character varying AS activity_type
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I::character varying AS activity_type
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_activity_type_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -304,11 +354,13 @@ BEGIN
         END IF;
 
         query := query || format(
-            'SELECT time_as_number AS time, %I::integer AS confidence_level
-             FROM time_series_data
-             WHERE %I IS NOT NULL',
+            'SELECT a.time_as_number AS time, a.%I::integer AS confidence_level
+             FROM time_series_data a
+             JOIN time_series_data_iri b
+               ON b.data_iri = get_confidence_level_iri(%L)
+              AND a.data_iri_index = b.data_iri_index',
             column_name,
-            column_name
+            device_id_array[i]
         );
     END LOOP;
 
@@ -368,51 +420,3 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql;
-
-
-
-
-CREATE OR REPLACE FUNCTION fill_activity_types(activity_types varchar[], times bigint[])
-RETURNS TABLE (
-    "time" bigint,
-    "activity_type" VARCHAR
-) AS $$
-DECLARE
-    result varchar[] := '{}';
-    last_valid varchar := '';
-    activity varchar;
-    activity_time bigint;
-    i integer := 1;
-BEGIN
-
-    FOREACH activity IN ARRAY activity_types
-    LOOP
-        IF activity <> 'others' THEN
-            last_valid := activity;
-            EXIT;
-        END IF;
-    END LOOP;
-
-
-    FOREACH activity IN ARRAY activity_types
-    LOOP
-        IF activity <> 'others' THEN
-            last_valid := activity;
-        END IF;
-
-
-        result := array_append(result, last_valid);
-    END LOOP;
-
-
-    FOR i IN 1..array_length(times, 1)
-    LOOP
-        activity_time := times[i];
-        RETURN QUERY SELECT activity_time, result[i];
-    END LOOP;
-
-
-    RETURN;
-END;
-$$
-LANGUAGE plpgsql
