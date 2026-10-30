@@ -1,4 +1,4 @@
 services:
   trajectoryqueryagent:
-    image: ghcr.io/theworldavatar/trajectoryqueryagent:6.1.0-3-add-trip-index-SNAPSHOT
+    image: ghcr.io/theworldavatar/trajectoryqueryagent:6.1.0
     build: .
