@@ -163,6 +163,7 @@ public class TrajectoryQueryAgent extends HttpServlet {
 
     private void createGeoserver() {
         createPostgresFunctions();
+        createTrajectoryPointsMaterializedView();
 
         String lineLayerDeviceId = null;
         try (InputStream is = new ClassPathResource("line_layer_device_id.sql").getInputStream()) {
@@ -207,7 +208,7 @@ public class TrajectoryQueryAgent extends HttpServlet {
             GeoServerVectorSettings geoServerVectorSettings = new GeoServerVectorSettings();
             virtualTable.setSql(lineLayerUserId);
             virtualTable.setEscapeSql(true);
-            virtualTable.setName("line_layer_device_id_table");
+            virtualTable.setName("line_layer_user_id_table");
             virtualTable.addVirtualTableGeometry("geom", "Geometry", "4326");
             virtualTable.addVirtualTableParameter("user_id", "null", ".*");
             virtualTable.addVirtualTableParameter("upperbound", "0", "^(0|[1-9][0-9]*)$");
@@ -290,6 +291,23 @@ public class TrajectoryQueryAgent extends HttpServlet {
                     geoServerVectorSettings);
         }
 
+    }
+
+    private void createTrajectoryPointsMaterializedView() {
+        try (InputStream input = new ClassPathResource("trajectory_points_mv.sql").getInputStream();
+                Connection connection = remoteRDBStoreClient.getConnection()) {
+            String sql = IOUtils.toString(input, StandardCharsets.UTF_8);
+            connection.setAutoCommit(false);
+            try {
+                executeSql(connection, sql);
+                connection.commit();
+            } catch (SQLException e) {
+                connection.rollback();
+                throw e;
+            }
+        } catch (IOException | SQLException e) {
+            throw new JPSRuntimeException(e);
+        }
     }
 
     /**
