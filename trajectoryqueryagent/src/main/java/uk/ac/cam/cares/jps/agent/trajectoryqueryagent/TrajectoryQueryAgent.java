@@ -38,13 +38,15 @@ import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.JWTVerifier;
 import java.security.interfaces.RSAPublicKey;
 
-@WebServlet(urlPatterns = { TrajectoryQueryAgent.CREATE_LAYER_ROUTE, TrajectoryQueryAgent.GET_DATES_ROUTE })
+@WebServlet(urlPatterns = { TrajectoryQueryAgent.CREATE_LAYER_ROUTE, TrajectoryQueryAgent.GET_DATES_ROUTE,
+        TrajectoryQueryAgent.REFRESH_MATERIALIZED_VIEW_ROUTE })
 public class TrajectoryQueryAgent extends HttpServlet {
     private RemoteRDBStoreClient remoteRDBStoreClient;
     private static final String TIMEZONE = "timezone";
     private static final Logger LOGGER = LogManager.getLogger(TrajectoryQueryAgent.class);
     public static final String CREATE_LAYER_ROUTE = "/createLayer";
     public static final String GET_DATES_ROUTE = "/getDatesWithData";
+    public static final String REFRESH_MATERIALIZED_VIEW_ROUTE = "/refreshMaterializedView";
 
     @Override
     public void init() {
@@ -59,6 +61,12 @@ public class TrajectoryQueryAgent extends HttpServlet {
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType("application/json");
 
+        if (request.getServletPath().contentEquals(REFRESH_MATERIALIZED_VIEW_ROUTE)) {
+            response.setHeader("Allow", "POST");
+            writeError(response, HttpServletResponse.SC_METHOD_NOT_ALLOWED, "Use POST to refresh the materialized view");
+            return;
+        }
+
         try {
             JSONObject result;
             if (request.getServletPath().contentEquals(GET_DATES_ROUTE)) {
@@ -71,7 +79,6 @@ public class TrajectoryQueryAgent extends HttpServlet {
                 String userId = getUserId(request);
                 result = getDatesWithData(timezone, userId);
             } else if (request.getServletPath().contentEquals(CREATE_LAYER_ROUTE)) {
-                getUserId(request); // authenticate before making any changes
                 result = createLayer();
             } else {
                 writeError(response, HttpServletResponse.SC_NOT_FOUND, "Path invalid, no operation performed");
@@ -87,6 +94,44 @@ public class TrajectoryQueryAgent extends HttpServlet {
             LOGGER.error("Failed to process request", e);
             writeError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Internal server error");
         }
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        if (!request.getServletPath().contentEquals(REFRESH_MATERIALIZED_VIEW_ROUTE)) {
+            super.doPost(request, response);
+            return;
+        }
+
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentType("application/json");
+        try {
+            writeJson(response, HttpServletResponse.SC_OK, refreshMaterializedView());
+        } catch (RuntimeException e) {
+            LOGGER.error("Failed to refresh materialized view", e);
+            writeError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Internal server error");
+        }
+    }
+
+    public JSONObject refreshMaterializedView() {
+        try (Connection connection = remoteRDBStoreClient.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                executeSql(connection, "REFRESH MATERIALIZED VIEW public.trajectory_points_mv");
+                executeSql(connection, "ANALYZE public.trajectory_points_mv");
+                connection.commit();
+            } catch (SQLException e) {
+                connection.rollback();
+                throw e;
+            }
+        } catch (SQLException e) {
+            throw new JPSRuntimeException(e);
+        }
+
+        JSONObject response = new JSONObject();
+        response.put("message", "Materialized view refreshed");
+        return response;
     }
 
     private void writeError(HttpServletResponse response, int status, String message) throws IOException {
