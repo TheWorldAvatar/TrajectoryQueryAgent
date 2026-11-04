@@ -1,44 +1,16 @@
-WITH distinct_devices AS (
-    SELECT array_agg(device_id::text) AS device_list
-    FROM (
-        SELECT DISTINCT device_id
-        FROM devices
-        WHERE sensor_class = 'Activity'
-    ) AS distinct_devices
-),
-
-timeseries AS (
-    SELECT *
-    FROM public.get_location_table(
-        (SELECT device_list FROM distinct_devices)
-    )
-),
-
-activity_data AS (
-    SELECT *
-    FROM public.get_activity_table(
-        (SELECT device_list FROM distinct_devices)
-    )
-),
-
-trip_data AS (
-    SELECT
-        t.*,
-        activity.activity_type
-    FROM timeseries t
-    LEFT JOIN LATERAL (
-        SELECT
-            a.activity_type
-        FROM activity_data a
-        WHERE a.device_id = t.device_id
-          AND ABS(t.time - a.time) <= 5000
-        ORDER BY
-            ABS(t.time - a.time)
-        LIMIT 1
-    ) AS activity ON TRUE
-    WHERE ('%user_id%' = '' OR t.user_id = '%user_id%')
-      AND ('%lowerbound%' = '0' OR t.time > '%lowerbound%'::BIGINT)
-      AND ('%upperbound%' = '0' OR t.time < '%upperbound%'::BIGINT)
+WITH trip_data AS (
+    SELECT points.*, public.get_user_id(points.device_id)::TEXT AS user_id
+    FROM public.trajectory_points_mv AS points
+    WHERE ('%user_id%' = '' OR points.device_id = ANY (
+        (SELECT public.get_device_ids('%user_id%'))::TEXT[]
+    ))
+      AND ('%lowerbound%' = '0' OR points.time > '%lowerbound%'::BIGINT)
+      AND ('%upperbound%' = '0' OR points.time < '%upperbound%'::BIGINT)
+      AND EXISTS (
+          SELECT 1 FROM public.devices AS devices
+          WHERE devices.device_id = points.device_id
+            AND devices.sensor_class = 'Activity'
+      )
 ),
 
 trip_changes AS (
