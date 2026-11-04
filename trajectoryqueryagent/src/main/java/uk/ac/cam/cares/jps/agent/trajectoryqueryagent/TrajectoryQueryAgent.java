@@ -61,9 +61,10 @@ public class TrajectoryQueryAgent extends HttpServlet {
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType("application/json");
 
-        if (request.getServletPath().contentEquals(REFRESH_MATERIALIZED_VIEW_ROUTE)) {
+        if (request.getServletPath().contentEquals(CREATE_LAYER_ROUTE)
+                || request.getServletPath().contentEquals(REFRESH_MATERIALIZED_VIEW_ROUTE)) {
             response.setHeader("Allow", "POST");
-            writeError(response, HttpServletResponse.SC_METHOD_NOT_ALLOWED, "Use POST to refresh the materialized view");
+            writeError(response, HttpServletResponse.SC_METHOD_NOT_ALLOWED, "Use POST for this route");
             return;
         }
 
@@ -78,8 +79,6 @@ public class TrajectoryQueryAgent extends HttpServlet {
 
                 String userId = getUserId(request);
                 result = getDatesWithData(timezone, userId);
-            } else if (request.getServletPath().contentEquals(CREATE_LAYER_ROUTE)) {
-                result = createLayer();
             } else {
                 writeError(response, HttpServletResponse.SC_NOT_FOUND, "Path invalid, no operation performed");
                 return;
@@ -99,7 +98,8 @@ public class TrajectoryQueryAgent extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-        if (!request.getServletPath().contentEquals(REFRESH_MATERIALIZED_VIEW_ROUTE)) {
+        if (!request.getServletPath().contentEquals(CREATE_LAYER_ROUTE)
+                && !request.getServletPath().contentEquals(REFRESH_MATERIALIZED_VIEW_ROUTE)) {
             super.doPost(request, response);
             return;
         }
@@ -107,9 +107,11 @@ public class TrajectoryQueryAgent extends HttpServlet {
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType("application/json");
         try {
-            writeJson(response, HttpServletResponse.SC_OK, refreshMaterializedView());
+            JSONObject result = request.getServletPath().contentEquals(CREATE_LAYER_ROUTE)
+                    ? createLayer() : refreshMaterializedView();
+            writeJson(response, HttpServletResponse.SC_OK, result);
         } catch (RuntimeException e) {
-            LOGGER.error("Failed to refresh materialized view", e);
+            LOGGER.error("Failed to process POST request", e);
             writeError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Internal server error");
         }
     }
