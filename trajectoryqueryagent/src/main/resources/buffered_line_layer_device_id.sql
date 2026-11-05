@@ -1,9 +1,20 @@
-WITH timeseries AS (
-    SELECT time, geom, trip, device_id
-    FROM public.trajectory_points_mv
-    WHERE ('%device_id%' = '' OR device_id = '%device_id%')
-      AND ('%lowerbound%' = '0' OR time > '%lowerbound%'::BIGINT)
-      AND ('%upperbound%' = '0' OR time < '%upperbound%'::BIGINT)
+WITH distinct_devices AS (
+    SELECT array_agg(device_id::text) AS device_list
+    FROM (SELECT DISTINCT device_id FROM devices) AS distinct_devices
+),
+
+timeseries AS (
+    SELECT
+        timeseries.time,
+        timeseries.geom,
+        timeseries.trip,
+        timeseries.device_id
+    FROM public.get_location_table(
+        (SELECT device_list FROM distinct_devices)
+    ) AS timeseries
+    WHERE ('%device_id%' = '' OR timeseries.device_id = '%device_id%')
+      AND (%lowerbound% = 0 OR timeseries.time > %lowerbound%)
+      AND (%upperbound% = 0 OR timeseries.time < %upperbound%)
 ),
 
 trip_changes AS (
