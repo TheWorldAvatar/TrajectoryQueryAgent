@@ -1,8 +1,9 @@
 WITH adjusted_times AS (
     SELECT DISTINCT
-        to_timestamp(time / 1000) AT TIME ZONE 'UTC' AT TIME ZONE '%s' AS local_time
+        to_timestamp(time / 1000.0) AT TIME ZONE '%s' AS local_time
     FROM
-        public.get_location_table(CAST(get_device_ids('%s') AS TEXT[]))
+        public.timeline_trajectory_points
+    WHERE device_id = ANY (CAST(get_device_ids('%s') AS TEXT[]))
 ),
 date_parts AS (
     SELECT

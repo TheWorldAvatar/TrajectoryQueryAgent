@@ -38,15 +38,13 @@ import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.JWTVerifier;
 import java.security.interfaces.RSAPublicKey;
 
-@WebServlet(urlPatterns = { TrajectoryQueryAgent.CREATE_LAYER_ROUTE, TrajectoryQueryAgent.GET_DATES_ROUTE,
-        TrajectoryQueryAgent.REFRESH_MATERIALIZED_VIEW_ROUTE })
+@WebServlet(urlPatterns = { TrajectoryQueryAgent.CREATE_LAYER_ROUTE, TrajectoryQueryAgent.GET_DATES_ROUTE })
 public class TrajectoryQueryAgent extends HttpServlet {
     private RemoteRDBStoreClient remoteRDBStoreClient;
     private static final String TIMEZONE = "timezone";
     private static final Logger LOGGER = LogManager.getLogger(TrajectoryQueryAgent.class);
     public static final String CREATE_LAYER_ROUTE = "/createLayer";
     public static final String GET_DATES_ROUTE = "/getDatesWithData";
-    public static final String REFRESH_MATERIALIZED_VIEW_ROUTE = "/refreshMaterializedView";
 
     @Override
     public void init() {
@@ -61,8 +59,7 @@ public class TrajectoryQueryAgent extends HttpServlet {
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType("application/json");
 
-        if (request.getServletPath().contentEquals(CREATE_LAYER_ROUTE)
-                || request.getServletPath().contentEquals(REFRESH_MATERIALIZED_VIEW_ROUTE)) {
+        if (request.getServletPath().contentEquals(CREATE_LAYER_ROUTE)) {
             response.setHeader("Allow", "POST");
             writeError(response, HttpServletResponse.SC_METHOD_NOT_ALLOWED, "Use POST for this route");
             return;
@@ -98,8 +95,7 @@ public class TrajectoryQueryAgent extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-        if (!request.getServletPath().contentEquals(CREATE_LAYER_ROUTE)
-                && !request.getServletPath().contentEquals(REFRESH_MATERIALIZED_VIEW_ROUTE)) {
+        if (!request.getServletPath().contentEquals(CREATE_LAYER_ROUTE)) {
             super.doPost(request, response);
             return;
         }
@@ -107,33 +103,12 @@ public class TrajectoryQueryAgent extends HttpServlet {
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType("application/json");
         try {
-            JSONObject result = request.getServletPath().contentEquals(CREATE_LAYER_ROUTE)
-                    ? createLayer() : refreshMaterializedView();
+            JSONObject result = createLayer();
             writeJson(response, HttpServletResponse.SC_OK, result);
         } catch (RuntimeException e) {
             LOGGER.error("Failed to process POST request", e);
             writeError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Internal server error");
         }
-    }
-
-    public JSONObject refreshMaterializedView() {
-        try (Connection connection = remoteRDBStoreClient.getConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                executeSql(connection, "REFRESH MATERIALIZED VIEW public.trajectory_points_mv");
-                executeSql(connection, "ANALYZE public.trajectory_points_mv");
-                connection.commit();
-            } catch (SQLException e) {
-                connection.rollback();
-                throw e;
-            }
-        } catch (SQLException e) {
-            throw new JPSRuntimeException(e);
-        }
-
-        JSONObject response = new JSONObject();
-        response.put("message", "Materialized view refreshed");
-        return response;
     }
 
     private void writeError(HttpServletResponse response, int status, String message) throws IOException {
@@ -210,7 +185,7 @@ public class TrajectoryQueryAgent extends HttpServlet {
 
     private void createGeoserver() {
         createPostgresFunctions();
-        createTrajectoryPointsMaterializedView();
+        checkTrajectoryTables();
 
         String lineLayerDeviceId = null;
         try (InputStream is = new ClassPathResource("line_layer_device_id.sql").getInputStream()) {
@@ -281,6 +256,7 @@ public class TrajectoryQueryAgent extends HttpServlet {
             virtualTable.setSql(bufferedLineDeviceId);
             virtualTable.setEscapeSql(true);
             virtualTable.setName("buffered_line_device_id_table");
+            virtualTable.addVirtualTableGeometry("geom", "Geometry", "3857");
             virtualTable.addVirtualTableParameter("device_id", "null", ".*");
             virtualTable.addVirtualTableParameter("upperbound", "0", "^(0|[1-9][0-9]*)$");
             virtualTable.addVirtualTableParameter("lowerbound", "0", "^(0|[1-9][0-9]*)$");
@@ -317,20 +293,11 @@ public class TrajectoryQueryAgent extends HttpServlet {
 
     }
 
-    private void createTrajectoryPointsMaterializedView() {
-        try (InputStream input = new ClassPathResource("trajectory_points_mv.sql").getInputStream();
-                Connection connection = remoteRDBStoreClient.getConnection()) {
-            String sql = IOUtils.toString(input, StandardCharsets.UTF_8);
-            connection.setAutoCommit(false);
-            try {
-                executeSql(connection, sql);
-                connection.commit();
-            } catch (SQLException e) {
-                connection.rollback();
-                throw e;
-            }
-        } catch (IOException | SQLException e) {
-            throw new JPSRuntimeException(e);
+    private void checkTrajectoryTables() {
+        try (Connection connection = remoteRDBStoreClient.getConnection()) {
+            executeSql(connection, "SELECT device_id, time, trip, activity_type FROM public.timeline_trajectory_points LIMIT 0");
+        } catch (SQLException e) {
+            throw new JPSRuntimeException("Shared trajectory schema is missing; run the migration before creating layers", e);
         }
     }
 

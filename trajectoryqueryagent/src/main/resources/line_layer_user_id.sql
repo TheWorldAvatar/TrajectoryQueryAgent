@@ -1,7 +1,7 @@
 /* Used by timeline app, produces one line per contiguous trip/stay segment. */
 WITH timeseries AS (
     SELECT time, geom, session_id, trip, device_id
-    FROM public.trajectory_points_mv
+    FROM public.timeline_trajectory_points
     WHERE ('%user_id%' = '' OR device_id = ANY (
         (SELECT public.get_device_ids('%user_id%'))::TEXT[]
     ))
