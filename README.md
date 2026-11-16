@@ -1,10 +1,9 @@
-# TrajectoryQueryAgent
+﻿# TrajectoryQueryAgent
 
 TrajectoryQueryAgent is an agent that handles trajectory related tasks. It currently supports the following functions through the endpoints:
 
 - `/createLayer`: create geoserver layer and postgis functions for the geoserver query (POST)
 - `/getDatesWithData`: get dates that have trajectory data
-- `/refreshMaterializedView`: refresh cached trajectory points for all layers (POST)
 
 ## Requirements
 
@@ -111,11 +110,14 @@ Needs the `Authorization` header in the following form:
 
 `Authorization: Bearer <JWT_TOKEN>`
 
+Only one `/getDatesWithData` request per authenticated user can run at a time within each application instance. Overlapping requests for the same user return HTTP 429 with `{"message":"A dates request is already in progress for this user"}`. The slot is released when the request finishes, including on failure; requests from different users can run concurrently. This limit is not shared across replicas.
+
 Parameters required:
 
 1. timezone (refer [here](https://www.postgresql.org/docs/current/view-pg-timezone-names.html) for permissible names)
 
 Response given in the form of
+
 ```json
 {"result":[{"month":1,"year":2024,"days":"{1,2,3}"}],"message":"Succeed"}
 ```
@@ -125,17 +127,12 @@ Response given in the form of
 [line layer (device id)]: ./trajectoryqueryagent/src/main/resources/line_layer_device_id.sql
 [line layer (user id)]: ./trajectoryqueryagent/src/main/resources/line_layer_user_id.sql
 
-### 3. /refreshMaterializedView
+## Shared trajectory storage
 
-Send a POST after ingestion to update the points used by all four
-layers. No authentication, request body, or parameters are required. Run `/createLayer` first to
-initialize the materialized view.
+Layers read from tables maintained by the SensorLoggerMobileAppAgent.
 
-```bash
-curl -X POST "http://localhost:3838/trajectoryqueryagent/refreshMaterializedView"
-```
+If any point in a trajectory has a trip index, pending points without indices are hidden. Otherwise all points are displayed. Trip presence is checked before the display time bounds.
 
-The route refreshes `public.trajectory_points_mv` and runs `ANALYZE` in one
-transaction.
+### Available-date cache
 
-The refresh covers all devices and can block layer reads until it completes.
+This agent shares the available date cache with the SensorLoggerMobileAppAgent.

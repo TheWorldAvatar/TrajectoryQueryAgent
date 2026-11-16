@@ -22,9 +22,13 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.commons.io.IOUtils;
 
@@ -41,6 +45,7 @@ import java.security.interfaces.RSAPublicKey;
 @WebServlet(urlPatterns = { TrajectoryQueryAgent.CREATE_LAYER_ROUTE, TrajectoryQueryAgent.GET_DATES_ROUTE })
 public class TrajectoryQueryAgent extends HttpServlet {
     private RemoteRDBStoreClient remoteRDBStoreClient;
+    private final Set<String> activeDateRequests = ConcurrentHashMap.newKeySet();
     private static final String TIMEZONE = "timezone";
     private static final Logger LOGGER = LogManager.getLogger(TrajectoryQueryAgent.class);
     public static final String CREATE_LAYER_ROUTE = "/createLayer";
@@ -51,6 +56,12 @@ public class TrajectoryQueryAgent extends HttpServlet {
         EndpointConfig endpointConfig = new EndpointConfig();
         remoteRDBStoreClient = new RemoteRDBStoreClient(endpointConfig.getDburl(), endpointConfig.getDbuser(),
                 endpointConfig.getDbpassword());
+        try (Connection connection = remoteRDBStoreClient.getConnection();
+                InputStream input = new ClassPathResource("date_cache.sql").getInputStream()) {
+            executeSql(connection, IOUtils.toString(input, StandardCharsets.UTF_8));
+        } catch (SQLException | IOException e) {
+            throw new JPSRuntimeException(e);
+        }
     }
 
     @Override
@@ -66,7 +77,6 @@ public class TrajectoryQueryAgent extends HttpServlet {
         }
 
         try {
-            JSONObject result;
             if (request.getServletPath().contentEquals(GET_DATES_ROUTE)) {
                 String timezone = request.getParameter(TIMEZONE);
                 if (timezone == null || timezone.isBlank()) {
@@ -75,13 +85,21 @@ public class TrajectoryQueryAgent extends HttpServlet {
                 }
 
                 String userId = getUserId(request);
-                result = getDatesWithData(timezone, userId);
+                if (!activeDateRequests.add(userId)) {
+                    writeError(response, 429, "A dates request is already in progress for this user");
+                    return;
+                }
+                try {
+                    JSONObject result = getDatesWithData(timezone, userId);
+                    writeJson(response, HttpServletResponse.SC_OK, result);
+                } finally {
+                    activeDateRequests.remove(userId);
+                }
+                return;
             } else {
                 writeError(response, HttpServletResponse.SC_NOT_FOUND, "Path invalid, no operation performed");
                 return;
             }
-
-            writeJson(response, HttpServletResponse.SC_OK, result);
         } catch (AuthenticationException e) {
             LOGGER.warn("Authentication failed: {}", e.getMessage());
             response.setHeader("WWW-Authenticate", "Bearer");
@@ -140,25 +158,56 @@ public class TrajectoryQueryAgent extends HttpServlet {
     }
 
     public JSONObject getDatesWithData(String timezone, String userId) {
-        String sqlTemplate = null;
-        try (InputStream is = new ClassPathResource("get_dates_with_data.sql").getInputStream()) {
-            sqlTemplate = IOUtils.toString(is, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            LOGGER.error("Failed to read get_dates_with_data.sql");
-            LOGGER.error(e.getMessage());
+        try (Connection connection = remoteRDBStoreClient.getConnection();
+                InputStream input = new ClassPathResource("get_dates_with_data.sql").getInputStream()) {
+            connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+            connection.setAutoCommit(false);
+            try {
+                java.sql.Array devices;
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "SELECT get_device_ids(?)::text[]")) {
+                    statement.setString(1, userId);
+                    try (ResultSet rows = statement.executeQuery()) {
+                        rows.next();
+                        devices = rows.getArray(1);
+                    }
+                }
+                if (devices == null) {
+                    devices = connection.createArrayOf("text", new String[0]);
+                }
+                try {
+                    try (PreparedStatement statement = connection.prepareStatement(
+                            "SELECT public.ensure_device_date_cache(?::text[], ?)")) {
+                        statement.setArray(1, devices);
+                        statement.setString(2, timezone);
+                        statement.execute();
+                    }
+                    JSONArray result = new JSONArray();
+                    try (PreparedStatement statement = connection.prepareStatement(
+                            IOUtils.toString(input, StandardCharsets.UTF_8))) {
+                        statement.setString(1, timezone);
+                        statement.setArray(2, devices);
+                        try (ResultSet rows = statement.executeQuery()) {
+                            while (rows.next()) {
+                                // Preserve the endpoint's PostgreSQL array string format.
+                                result.put(new JSONObject().put("year", rows.getInt("year"))
+                                        .put("month", rows.getInt("month"))
+                                        .put("days", rows.getString("days")));
+                            }
+                        }
+                    }
+                    connection.commit();
+                    return new JSONObject().put("message", "Succeed").put("result", result);
+                } finally {
+                    devices.free();
+                }
+            } catch (SQLException | IOException | RuntimeException e) {
+                connection.rollback();
+                throw e;
+            }
+        } catch (SQLException | IOException e) {
+            throw new JPSRuntimeException(e);
         }
-
-        JSONObject response = new JSONObject();
-        if (sqlTemplate != null) {
-            String sql = String.format(sqlTemplate, timezone, userId);
-            JSONArray result = remoteRDBStoreClient.executeQuery(sql);
-            response.put("message", "Succeed");
-            response.put("result", result);
-        } else {
-            response.put("message", "Failed");
-        }
-
-        return response;
     }
 
     /**

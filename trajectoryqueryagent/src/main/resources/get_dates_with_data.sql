@@ -1,34 +1,11 @@
-WITH adjusted_times AS (
-    SELECT DISTINCT
-        to_timestamp(time / 1000.0) AT TIME ZONE '%s' AS local_time
-    FROM
-        public.timeline_trajectory_points
-    WHERE device_id = ANY (CAST(get_device_ids('%s') AS TEXT[]))
-),
-date_parts AS (
-    SELECT
-        EXTRACT(YEAR FROM local_time) AS year,
-        EXTRACT(MONTH FROM local_time) AS month,
-        EXTRACT(DAY FROM local_time) AS day
-    FROM
-        adjusted_times
-),
-grouped_dates AS (
-    SELECT
-        year,
-        month,
-        array_agg(DISTINCT day) AS days
-    FROM
-        date_parts
-    GROUP BY
-        year, month
+WITH available_dates AS (
+    SELECT DISTINCT local_date
+    FROM public.device_available_dates
+    WHERE timezone = ? AND device_id = ANY (?::text[])
 )
-
-SELECT
-    year,
-    month,
-    days
-FROM
-    grouped_dates
-ORDER BY
-    year, month;
+SELECT EXTRACT(YEAR FROM local_date) AS year,
+       EXTRACT(MONTH FROM local_date) AS month,
+       array_agg(EXTRACT(DAY FROM local_date) ORDER BY local_date) AS days
+FROM available_dates
+GROUP BY EXTRACT(YEAR FROM local_date), EXTRACT(MONTH FROM local_date)
+ORDER BY year, month;
