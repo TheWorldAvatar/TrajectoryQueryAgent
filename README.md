@@ -1,8 +1,8 @@
-# TrajectoryQueryAgent
+﻿# TrajectoryQueryAgent
 
 TrajectoryQueryAgent is an agent that handles trajectory related tasks. It currently supports the following functions through the endpoints:
 
-- `/createLayer`: create geoserver layer and postgis functions for the geoserver query
+- `/createLayer`: create geoserver layer and postgis functions for the geoserver query (POST)
 - `/getDatesWithData`: get dates that have trajectory data
 
 ## Requirements
@@ -51,17 +51,18 @@ The debugger port will be available at 5005.
 
 ### 1. /createLayer
 
-No input parameters required for this route
+Send a POST. No authentication or input parameters are required for this route.
 
 ```bash
-curl -X POST "localhost:3838/trajectoryqueryagent/createLayer"
+curl -X POST "http://localhost:3838/trajectoryqueryagent/createLayer"
 ```
 
-Currently, three layers are created in the twa workspace. Unix timestamp in milliseconds is used for the layers.
+Currently, four layers are created in the twa workspace. Unix timestamp in milliseconds is used for the layers.
 
 1. trajectoryDeviceId
 2. trajectoryUserId
 3. bufferedLineDeviceId
+4. trajectoryUserIdByActivity
 
 In the following sections, attributes refer to variables in the SQL view table, SQL view parameters refer to parameters passed from the URL and substituted in the SQL view, e.g. %device_id% in [line layer (device id)].
 
@@ -76,10 +77,15 @@ View parameters: device_id
 
 #### trajectoryUserId
 
-This layer consists of a single line, so detailed styling according to attributes such as speed is not possible. Refer to [line layer (user id)].
+This layer produces one line per contiguous trip/stay segment within the requested
+time range. Refer to [line layer (user id)].
 
-Attributes: iri  
-View parameters: user_id
+Attributes: start_time, end_time, geom, iri, session_id, trip, id, distance_traveled
+
+View parameters: user_id, lowerbound (optional), upperbound (optional)
+
+`lowerbound` and `upperbound` are Unix milliseconds, with `0` meaning unbounded.
+Bounds are exclusive and apply to points before trip segmentation and aggregation.
 
 #### bufferedLineDeviceId
 
@@ -104,11 +110,14 @@ Needs the `Authorization` header in the following form:
 
 `Authorization: Bearer <JWT_TOKEN>`
 
+Only one `/getDatesWithData` request per authenticated user can run at a time within each application instance. Overlapping requests for the same user return HTTP 429 with `{"message":"A dates request is already in progress for this user"}`. The slot is released when the request finishes, including on failure; requests from different users can run concurrently. This limit is not shared across replicas.
+
 Parameters required:
 
 1. timezone (refer [here](https://www.postgresql.org/docs/current/view-pg-timezone-names.html) for permissible names)
 
 Response given in the form of
+
 ```json
 {"result":[{"month":1,"year":2024,"days":"{1,2,3}"}],"message":"Succeed"}
 ```
@@ -117,3 +126,13 @@ Response given in the form of
 [stack-manager config directory]: https://github.com/cambridge-cares/TheWorldAvatar/tree/main/Deploy/stacks/dynamic/stack-manager/inputs/config/services
 [line layer (device id)]: ./trajectoryqueryagent/src/main/resources/line_layer_device_id.sql
 [line layer (user id)]: ./trajectoryqueryagent/src/main/resources/line_layer_user_id.sql
+
+## Shared trajectory storage
+
+Layers read from tables maintained by the SensorLoggerMobileAppAgent.
+
+If any point in a trajectory has a trip index, pending points without indices are hidden. Otherwise all points are displayed. Trip presence is checked before the display time bounds.
+
+### Available-date cache
+
+This agent shares the available date cache with the SensorLoggerMobileAppAgent.

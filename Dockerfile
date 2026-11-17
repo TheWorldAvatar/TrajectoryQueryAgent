@@ -15,7 +15,7 @@ RUN sed -i "s|REPO_USERNAME|$(cat ../credentials/repo_username.txt)|;s|REPO_PASS
 WORKDIR /root/code
 COPY trajectoryqueryagent/pom.xml ./pom.xml
 
-RUN --mount=type=cache,id=m2-cache,target=/root/.m2/repository,sharing=locked mvn dependency:resolve
+RUN --mount=type=cache,id=m2-cache,target=/root/.m2/repository,sharing=locked mvn dependency:go-offline
 
 #==================================================================================================
 # Second stage: build war file
@@ -27,7 +27,7 @@ COPY --from=retriever /root/.m2 /root/.m2
 WORKDIR /root/code
 COPY trajectoryqueryagent /root/code
 
-RUN --mount=type=cache,id=m2-cache,target=/root/.m2/repository,sharing=locked mvn package -DskipTests -U
+RUN --mount=type=cache,id=m2-cache,target=/root/.m2/repository,sharing=locked mvn package -DskipTests
 #==================================================================================================
 
 # Third stage: copy the compiled application into the runtime image

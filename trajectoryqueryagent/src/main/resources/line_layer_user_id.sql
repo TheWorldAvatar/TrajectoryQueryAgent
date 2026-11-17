@@ -1,25 +1,13 @@
 /* Used by timeline app, produces one line per contiguous trip/stay segment. */
-WITH distinct_devices AS (
-    SELECT array_agg(device_id::text) AS device_list
-    FROM (SELECT DISTINCT device_id FROM devices) AS distinct_devices
+WITH timeseries AS (
+    SELECT time, geom, session_id, trip, device_id
+    FROM public.timeline_trajectory_points
+    WHERE ('%user_id%' = '' OR device_id = ANY (
+        (SELECT public.get_device_ids('%user_id%'))::TEXT[]
+    ))
+      AND ('%lowerbound%' = '0' OR time > '%lowerbound%'::BIGINT)
+      AND ('%upperbound%' = '0' OR time < '%upperbound%'::BIGINT)
 ),
-
-timeseries AS (
-    SELECT
-        timeseries.time,
-        timeseries.geom,
-        timeseries.session_id,
-        timeseries.trip,
-        timeseries.device_id,
-        timeseries.user_id
-    FROM public.get_location_table(
-        (SELECT device_list FROM distinct_devices)
-    ) AS timeseries
-    WHERE ('%user_id%' = '' OR timeseries.user_id = '%user_id%')
-      AND ('%lowerbound%' = '0' OR timeseries.time > '%lowerbound%'::BIGINT)
-      AND ('%upperbound%' = '0' OR timeseries.time < '%upperbound%'::BIGINT)
-),
-
 trip_changes AS (
     SELECT
         *,
@@ -31,7 +19,7 @@ trip_changes AS (
         END AS trip_change
     FROM timeseries
     WINDOW device_timeline AS (
-        PARTITION BY user_id, device_id
+        PARTITION BY device_id
         ORDER BY time
     )
 ),
@@ -40,7 +28,7 @@ segmented_trips AS (
     SELECT
         *,
         SUM(trip_change) OVER (
-            PARTITION BY user_id, device_id
+            PARTITION BY device_id
             ORDER BY time
             ROWS UNBOUNDED PRECEDING
         ) AS trip_segment
@@ -51,23 +39,25 @@ grouped_trips AS (
     SELECT
         MIN(time) AS start_time,
         MAX(time) AS end_time,
-        user_id,
         device_id,
+        trip_segment,
         MIN(trip) AS trip,
         MODE() WITHIN GROUP (ORDER BY session_id) AS session_id,
         ST_MakeLine(geom ORDER BY time) AS geom
     FROM segmented_trips
-    GROUP BY user_id, device_id, trip_segment
+    GROUP BY device_id, trip_segment
 )
 
 SELECT
     start_time,
     end_time,
     geom,
-    CONCAT('https://w3id.org/MON/person.owl#person_', user_id) AS iri,
+    CONCAT('https://w3id.org/MON/person.owl#person_',
+        CASE WHEN '%user_id%' = '' THEN public.get_user_id(device_id)
+             ELSE '%user_id%' END) AS iri,
     session_id,
     trip,
-    ROW_NUMBER() OVER (ORDER BY start_time) AS id,
+    ROW_NUMBER() OVER (ORDER BY start_time, device_id, trip_segment) AS id,
     ST_Length(ST_Transform(geom, 3857))::INTEGER AS distance_traveled
 FROM grouped_trips
-ORDER BY start_time
+ORDER BY start_time, device_id, trip_segment

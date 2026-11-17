@@ -1,23 +1,6 @@
-WITH distinct_devices AS (
-    SELECT 
-        array_agg(device_id::text) as device_list
-    FROM 
-        (SELECT DISTINCT device_id FROM devices) AS distinct_devices
-),
-
-timeseries AS (
-    SELECT
-        timeseries.time AS time,
-        timeseries.speed AS speed,
-        timeseries.altitude AS altitude,
-        timeseries.geom AS geom,
-        timeseries.bearing AS bearing,
-        timeseries.session_id AS session_id,
-        timeseries.trip AS trip,
-        timeseries.device_id AS device_id
-    FROM
-        public.get_location_table((SELECT device_list FROM distinct_devices)) AS timeseries
-    ORDER BY time
+WITH timeseries AS (
+    SELECT * FROM public.timeline_trajectory_points
+    WHERE ('%device_id%' = '' OR device_id = '%device_id%')
 ),
 
 line AS (
