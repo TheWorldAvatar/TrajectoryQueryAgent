@@ -1,2 +1,6 @@
 Dockerfile
 docker-compose.yml
+.m2/repository/
+trajectoryqueryagent/target/
+trajectoryqueryagent/output/
+.git/

@@ -1,7 +1,8 @@
 package uk.ac.cam.cares.jps.agent.trajectoryqueryagent;
 
+import com.cmclinnovations.stack.clients.blazegraph.BlazegraphClient;
 import com.cmclinnovations.stack.clients.blazegraph.BlazegraphEndpointConfig;
-import com.cmclinnovations.stack.clients.docker.ContainerClient;
+import com.cmclinnovations.stack.clients.postgis.PostGISClient;
 import com.cmclinnovations.stack.clients.postgis.PostGISEndpointConfig;
 
 public class EndpointConfig {
@@ -12,13 +13,11 @@ public class EndpointConfig {
     private PostGISEndpointConfig postGISEndpointConfig;
 
     public EndpointConfig() {
-        ContainerClient containerClient = new ContainerClient();
-        BlazegraphEndpointConfig blazegraphEndpointConfig = containerClient.readEndpointConfig("blazegraph",
-                BlazegraphEndpointConfig.class);
+        BlazegraphClient.getInstance().readEndpointConfig();
+        BlazegraphEndpointConfig blazegraphEndpointConfig = BlazegraphClient.getInstance().readEndpointConfig();
         this.kgurl = blazegraphEndpointConfig.getUrl("kb");
 
-        postGISEndpointConfig = containerClient.readEndpointConfig("postgis",
-                PostGISEndpointConfig.class);
+        postGISEndpointConfig = PostGISClient.getInstance().readEndpointConfig();
         this.dbuser = postGISEndpointConfig.getUsername();
         this.dbpassword = postGISEndpointConfig.getPassword();
     }
